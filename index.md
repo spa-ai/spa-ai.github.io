@@ -10,93 +10,153 @@
 
 ---
 
-# Homepage
+## Motivation
 
-## Introduction
+Large Language Models (LLMs) as agents often struggle in **out-of-distribution (OOD) environments**. These environments are dynamic, governed by task-specific rules and stochasticity, making them difficult to capture using only pretrained knowledge. Standard reinforcement learning (RL) fine-tuning frequently suffers from overfitting: models tend to exploit one narrow trajectory (high Pass@1) while failing to maintain diverse solution coverage (low Pass@k). This brittleness prevents agents from generalizing and scaling to more complex scenarios.
 
-Large Language Models (LLMs) as agents face challenges in **out-of-distribution (OOD)** environments. While vanilla RL training may increase **Pass@1**, it often causes **Pass@k** to collapse, exposing brittle exploration and limited generalization.
-
-**SPA (Self-Play Agent)** addresses this by equipping LLM agents with an **internal world model** via **self-play supervised finetuning (SFT)**. By explicitly modeling **states** and **transitions**, SPA provides structured reasoning aligned with environment dynamics. This initialization enables more efficient and stable **PPO training**.
+**SPA (Self-Play Agent)** addresses this limitation by equipping LLM agents with an **internal world model** that explicitly represents both environment states and their transitions. By grounding reasoning in structured representations, SPA provides agents with the tools to understand, predict, and plan effectively. This world model is acquired through **self-play supervised finetuning (SFT)**, and then leveraged in downstream **PPO optimization**.
 
 ---
 
 ## Framework Overview
 
-SPA decomposes world modeling into two key components:
-
-1. **State Estimation** – structured representations of observations (e.g., spatial coordinates in Sokoban) that reduce perplexity and improve grounding.
-2. **Transition Modeling** – predicting future states conditioned on current state and actions.
-
-The training pipeline follows three stages:
-
-* **Data Generation** – Collect self-play trajectories with `<observation>` and `<prediction>`.
-* **SFT (World Model Training)** – Train the model to internalize environment dynamics.
-* **PPO Optimization** – Fine-tune with reinforcement learning for performance.
-
 <p align="center">
-  <img src="assets/spa_wm_overview.png" alt="SPA world-model pipeline" width="950"/>
+  <img src="assets/main_fig.png" width="800"/>
 </p>
 
----
+SPA integrates three stages into a unified pipeline:
 
-## Key Results
-
-Experiments across diverse environments highlight SPA’s effectiveness:
-
-* **Sokoban (6×6)** – Pass@1: **25.6% → 59.8%**, Pass@8: **34.0% → 69.5%**
-* **FrozenLake (4×4/6×6)** – Pass@1: **22.1% → 70.9%**, Pass@8: **30.7% → 75.0%**
-* **Sudoku (4×4 puzzles)** – Pass@1: **0.0% → 59.6%**, Pass@8: **11.3% → 94.9%**
-
-Notably, SPA-trained **small models** (e.g., Qwen2.5-0.5B, LLaMA-3.2-1B) can surpass larger baselines like GPT-OSS-20B on text games.
+1. **Data Generation**: Collect trajectories where the agent explicitly outputs its current observation and predicted next state before producing an action.
+2. **Self-Play SFT**: Replace the model’s imagined world states with ground-truth states provided by the environment, and train the model to internalize this representation.
+3. **PPO Training**: Initialize reinforcement learning with the world-model-informed agent, enabling more efficient exploration and robust optimization.
 
 ---
 
-## Example World Model Trace
+## World Modeling
+
+The key innovation of SPA lies in **internalizing environment dynamics** into the agent itself. World modeling is broken into two complementary components:
+
+* **State Representation**: Raw symbolic observations (e.g., Sokoban grids) are mapped into structured, low-perplexity descriptions such as coordinate-based encodings of players, boxes, and goals. This structured representation reduces ambiguity, improves credit assignment, and makes spatial relations explicit.
+* **Transition Modeling**: Agents learn to predict how states evolve after actions. This equips them with the ability to anticipate outcomes, plan ahead, and reason about multi-step trajectories.
+
+> Example (Sokoban prompt with structured coordinates):
+
+```
+You are solving the Sokoban puzzle. Push all boxes to targets.
+State:
+######
+#__O#
+#__X#
+###P#
+######
+Player at (3,3); Box at (2,3); Goal at (1,4).
+```
+
+---
+
+## Training Objectives
+
+SPA jointly optimizes two objectives:
+
+* **World Model SFT**: Cross-entropy loss applied only to world-model-relevant tokens (`<think>` and `<answer>` spans), ensuring the agent learns state grounding and transition prediction.
+* **Policy Optimization (PPO)**: Rewards are applied solely to `<answer>` tokens, allowing RL to focus on action quality while leveraging the internalized world model for stability and efficiency.
+
+This separation enforces a clean division: SFT captures the environment’s rules, PPO learns how to act optimally within them.
+
+---
+
+## Results
+
+### Performance Gains
+
+* **Sokoban**: Success rate improves from **25.6% → 59.8%** (Qwen2.5-1.5B).
+* **FrozenLake**: Success improves from **22.1% → 70.9%**.
+* **Sudoku (4x4)**: SPA enables models to solve puzzles that vanilla RL cannot.
+
+### Generalization Across Models
+
+SPA scales consistently across sizes and families:
+
+* **Qwen2.5-0.5B** and **Qwen2.5-3B** both benefit significantly.
+* **LLaMA-3.2-1B** shows the same stability and performance gains.
+
+### State Perplexity
+
+Structured states dramatically reduce perplexity:
+
+* Sokoban: 163.9 → **19.6**
+* FrozenLake: 187.1 → **15.4**
+* Sudoku: 15.5 → **7.3**
+
+---
+
+## What Contributes to Successful World Modeling and Generalization?
+
+### Effect of Transition Modeling
+
+Transition-model learning is central to RL scaling. When the SFT loss on current and next states is masked out, PPO training shows no improvement. This confirms that the ability to predict future states is indispensable for effective policy learning.
+
+### Effect of Ground Truth
+
+Ground-truth coordinates are critical. Without explicit spatial grounding, the model struggles to align its predictions with environment dynamics. Experiments show that randomizing coordinates leads to collapse in performance, highlighting the necessity of structured state descriptions.
+
+### Effect of Initial Policy for Exploration
+
+Effective exploration depends heavily on the initial policy. Replacing the RL policy with random actions to generate world-modeling trajectories degrades downstream learning. Self-play generates higher-quality data aligned with the agent’s reasoning and exploration trajectory, producing more robust world models.
+
+### Exploration-Exploitation Balance
+
+SPA-trained agents sustain higher Pass@k scores over time, suggesting improved coverage of diverse solution paths while still exploiting efficient strategies.
+
+### Easy-to-Hard Transfer
+
+Training a world model on simple tasks (FrozenLake 4×4) significantly accelerates convergence and improves asymptotic performance on more difficult variants (FrozenLake 6×6).
+
+### Generalization Limits
+
+While intra-domain transfer works well (easy-to-hard), cross-environment transfer (e.g., Sokoban → FrozenLake) remains limited, showing that environment-specific modeling is still necessary.
+
+### Mechanisms Behind SPA's Effectiveness
+
+1. **Grounding reduces ambiguity**: Structured observations ensure spatial relations are explicit and unambiguous.
+2. **Transition modeling teaches causality**: Agents learn to anticipate the consequences of actions, rather than memorizing observed outcomes.
+3. **Self-play ensures relevance**: Data generated through self-play reflects the distribution of states the agent will actually encounter.
+4. **Joint optimization balances knowledge and action**: SFT teaches the rules, PPO refines the action policy.
+
+Together, these findings explain why SPA consistently outperforms vanilla RL and online world-modeling baselines.
+
+---
+
+## Example Trace
 
 ```text
 <think>
   <observation>
   ######
-  #___O#
-  #__X_#
-  ###P_#
-  ###__#
+  #__O#
+  #_X_#
+  ###P#
   ######
-  Player (P) at (3,3); box (X) at (2,3); goal (O) at (1,4).
+  Player at (3,3); Box at (2,3); Goal at (1,4).
   </observation>
   <prediction>
   ######
-  #___O#
-  #____#
-  ###X_#
-  ###P_#
+  #__O#
+  #___#
+  ###XP
   ######
   </prediction>
 </think>
 <answer>Up</answer>
 ```
 
-This explicit **observation → prediction → action** format grounds decisions in true environment dynamics.
-
 ---
 
-## Findings & Analysis
+## Limitations
 
-* **Transition modeling is essential**: Masking transition spans in SFT eliminates SPA’s gains.
-* **Ground-truth matters**: Randomizing coordinates while keeping format collapses performance.
-* **Policy-aware exploration**: Self-play data from a trained policy yields higher-quality supervision than random rollouts.
-* **Longer SFT helps**: More SFT epochs consistently improve PPO performance and shorten trajectories.
-* **Generalization**: Easy→Hard transfer works within environment families (e.g., FrozenLake 4×4 → 6×6), but cross-game transfer remains difficult.
-
----
-
-## Conclusion
-
-SPA demonstrates a **minimal yet powerful recipe** for improving RL agents:
-
-1. Build a world model via self-play SFT.
-2. Initialize PPO with this world model.
-3. Achieve robust improvements in grounding, reasoning, and generalization across OOD environments.
+* Cross-game transfer remains limited; world models are environment-specific.
+* Reliance on structured encodings may not directly apply to highly unstructured or multimodal domains.
+* Scaling SPA to open-ended environments with complex tool use requires further work.
 
 ---
 
