@@ -21,7 +21,7 @@ Large Language Models (LLMs) as agents often struggle in **out-of-distribution (
 ## Framework Overview
 
 <p align="center">
-  <img src="assets/main_fig.png" width="800"/>
+  <img src="image.png" width="800"/>
 </p>
 
 SPA integrates three stages into a unified pipeline:
@@ -69,16 +69,16 @@ This separation enforces a clean division: SFT captures the environment’s rule
 
 ### Performance Gains
 
-* **Sokoban**: Success rate improves from **25.6% → 59.8%** (Qwen2.5-1.5B).
+* **Sokoban**: Success rate improves from **25.6% → 59.8%** (Qwen2.5-1.5B-Instruct).
 * **FrozenLake**: Success improves from **22.1% → 70.9%**.
-* **Sudoku (4x4)**: SPA enables models to solve puzzles that vanilla RL cannot.
+* **Sudoku**: SPA enables models to solve puzzles that vanilla RL cannot.
 
 ### Generalization Across Models
 
 SPA scales consistently across sizes and families:
 
-* **Qwen2.5-0.5B** and **Qwen2.5-3B** both benefit significantly.
-* **LLaMA-3.2-1B** shows the same stability and performance gains.
+* **Qwen2.5-0.5B-Instruct** and **Qwen2.5-3B** both benefit significantly.
+* **LLaMA-3.2-1B-Instruct** shows the same stability and performance gains.
 
 ### State Perplexity
 
